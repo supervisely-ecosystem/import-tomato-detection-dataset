@@ -12,6 +12,7 @@ def create_ann(ann_path):
 
     with open(ann_path, 'r') as f:
         data = f.read()
+
     bs_data = BeautifulSoup(data)
     width = int(bs_data.find(g.width_field).text)
     height = int(bs_data.find(g.height_field).text)
@@ -33,9 +34,9 @@ def extract_zip():
         g.my_app.stop()
 
 
-@g.my_app.callback("import_minne_apple")
+@g.my_app.callback("import_tomato_detection")
 @sly.timeit
-def import_minne_apple(api: sly.Api, task_id, context, state, app_logger):
+def import_tomato_detection(api: sly.Api, task_id, context, state, app_logger):
 
     gdown.download(g.tomato_url, g.archive_path, quiet=False)
     extract_zip()
@@ -51,7 +52,6 @@ def import_minne_apple(api: sly.Api, task_id, context, state, app_logger):
     sample_img_names = random.sample(os.listdir(images_path), g.sample_img_count)
 
     progress = sly.Progress('Upload items', len(sample_img_names), app_logger)
-
     for img_batch in sly.batched(sample_img_names, batch_size=g.batch_size):
 
         img_pathes = [os.path.join(images_path, name) for name in img_batch]
@@ -72,7 +72,7 @@ def main():
         "TEAM_ID": g.TEAM_ID,
         "WORKSPACE_ID": g.WORKSPACE_ID
     })
-    g.my_app.run(initial_events=[{"command": "import_minne_apple"}])
+    g.my_app.run(initial_events=[{"command": "import_tomato_detection"}])
 
 
 if __name__ == '__main__':

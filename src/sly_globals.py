@@ -19,8 +19,7 @@ WORKSPACE_ID = int(os.environ['context.workspaceId'])
 logger = sly.logger
 
 sample_percent = int(os.environ["modal.state.samplePercent"])
-# sample_percent = 20 #TODO to debug
-sample_img_count = round(6.43 * sample_percent)
+sample_img_count = round(8.95 * sample_percent)
 
 project_name = 'tomato detection'
 work_dir = 'tomato_data'
