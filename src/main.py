@@ -1,50 +1,27 @@
 
 import os, random, zipfile
 import supervisely as sly
+from bs4 import BeautifulSoup
+from supervisely.io.fs import get_file_name
 import sly_globals as g
 import gdown
-from supervisely.io.json import load_json_file
 
 
-def prepare_ann_data(ann_path):
-
-    ann_json = load_json_file(ann_path)
-    annotations = ann_json['annotations']
-    images = ann_json['images']
-
-    for image_data in images:
-        g.image_name_to_id[image_data['file_name']] = image_data['id']
-        g.name_to_size[image_data['file_name']] = (image_data['height'], image_data['width'])
-
-    for ann_data in annotations:
-        g.id_to_segm_anns[ann_data['image_id']].append(ann_data['segmentation'][0])
-        g.id_to_tag[ann_data['image_id']].append(ann_data['category_id'])
-
-    for category in ann_json['categories']:
-        g.category_id_to_name[category['id']] = category['name']
-
-
-def create_ann(img_name):
+def create_ann(ann_path):
     labels = []
 
-    im_id = g.image_name_to_id[img_name]
-    img_size = g.name_to_size[img_name]
-    segm_anns = g.id_to_segm_anns[im_id]
-    tag_ids = g.id_to_tag[im_id]
-
-    for idx, segm_ann in enumerate(segm_anns):
-        points = []
-        for i in range(0, len(segm_ann), 2):
-            points.append(sly.PointLocation(segm_ann[i+1], segm_ann[i]))
-        polygon = sly.Polygon(points, interior=[])
-
-        tag_name = g.category_id_to_name[tag_ids[idx]]
-        tag = sly.Tag(g.meta.get_tag_meta(tag_name))
-
-        label = sly.Label(polygon, g.obj_class, tags=sly.TagCollection([tag]))
+    with open(ann_path, 'r') as f:
+        data = f.read()
+    bs_data = BeautifulSoup(data)
+    width = int(bs_data.find(g.width_field).text)
+    height = int(bs_data.find(g.height_field).text)
+    for coord_data in bs_data.find_all(g.coord_field):
+        left, top, right, bottom = coord_data.text[1:-1].split('\n')
+        rectangle = sly.Rectangle(int(top), int(left), int(bottom), int(right))
+        label = sly.Label(rectangle, g.obj_class)
         labels.append(label)
 
-    return sly.Annotation(img_size=img_size, labels=labels)
+    return sly.Annotation(img_size=(height, width), labels=labels)
 
 
 def extract_zip():
@@ -60,35 +37,32 @@ def extract_zip():
 @sly.timeit
 def import_minne_apple(api: sly.Api, task_id, context, state, app_logger):
 
-    gdown.download(g.apple_url, g.archive_path, quiet=False)
+    gdown.download(g.tomato_url, g.archive_path, quiet=False)
     extract_zip()
 
-    tomato_data_path = os.path.join(g.work_dir_path, g.folder_name)
+    images_path = os.path.join(g.work_dir_path, g.images_folder)
+    anns_path = os.path.join(g.work_dir_path, g.anns_folder)
 
     new_project = api.project.create(g.WORKSPACE_ID, g.project_name, change_name_if_conflict=True)
     api.project.update_meta(new_project.id, g.meta.to_json())
 
-    for ds in g.datasets:
-        new_dataset = api.dataset.create(new_project.id, ds, change_name_if_conflict=True)
+    new_dataset = api.dataset.create(new_project.id, g.dataset_name, change_name_if_conflict=True)
 
-        curr_img_path = os.path.join(tomato_data_path, ds.lower())
-        curr_ann_path = os.path.join(tomato_data_path, g.anns_folder, ds.lower() + '.json')
-        prepare_ann_data(curr_ann_path)
+    sample_img_names = random.sample(os.listdir(images_path), g.sample_img_count)
 
-        curr_img_cnt = g.sample_img_count[ds]
-        sample_img_path = random.sample(os.listdir(curr_img_path), curr_img_cnt)
+    progress = sly.Progress('Upload items', len(sample_img_names), app_logger)
 
-        progress = sly.Progress('Create dataset {}'.format(ds), curr_img_cnt, app_logger)
-        for img_batch in sly.batched(sample_img_path, batch_size=g.batch_size):
+    for img_batch in sly.batched(sample_img_names, batch_size=g.batch_size):
 
-            img_pathes = [os.path.join(curr_img_path, name) for name in img_batch]
-            img_infos = api.image.upload_paths(new_dataset.id, img_batch, img_pathes)
-            img_ids = [im_info.id for im_info in img_infos]
+        img_pathes = [os.path.join(images_path, name) for name in img_batch]
+        img_infos = api.image.upload_paths(new_dataset.id, img_batch, img_pathes)
+        img_ids = [im_info.id for im_info in img_infos]
+        ann_pathes = [os.path.join(anns_path, get_file_name(name) + '.xml') for name in img_batch]
 
-            anns = [create_ann(img_name) for img_name in img_batch]
-            api.annotation.upload_anns(img_ids, anns)
+        anns = [create_ann(ann_path) for ann_path in ann_pathes]
+        api.annotation.upload_anns(img_ids, anns)
 
-            progress.iters_done_report(len(img_batch))
+        progress.iters_done_report(len(img_batch))
 
     g.my_app.stop()
 
