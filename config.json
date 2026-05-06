@@ -1,6 +1,7 @@
 {
   "name": "Import tomato detection dataset",
   "type": "app",
+  "instance_version": "6.15.60",
   "categories": [
     "Images"
   ],
